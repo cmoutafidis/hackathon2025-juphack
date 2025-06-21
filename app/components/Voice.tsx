@@ -408,12 +408,14 @@ export default function Voice() {
       console.log("Starting token swap with Jupiter...");
       console.log("Using wallet address:", walletData.address);
       
-      // Inform the user that a small amount of test SOL is being used
-      console.log("Using test SOL balance for demo purposes");
+      // Get the latest balance from Jupiter before swapping
+      showNotification('Getting latest wallet balance for swap');
+      await fetchTokenBalances(walletData.address);
+      await fetchWalletBalance(walletData.address);
       
-      // Display the confirmed balance before swap
-      showNotification(`Using ${walletData.balance.toFixed(4)} SOL for swap`);
-      speak(`Using your available balance of ${walletData.balance.toFixed(4)} SOL for the token swap.`);
+      // Now use the refreshed balance
+      showNotification(`Using latest balance of ${walletData.balance.toFixed(4)} SOL for swap`);
+      speak(`Using your current balance of ${walletData.balance.toFixed(4)} SOL for the token swap. Jupiter will use the most up-to-date balance information.`);
       
       // Call the token swap API
       const response = await fetch('/api/swapTokens', {
@@ -485,33 +487,20 @@ export default function Voice() {
       
       if (errorMessage.includes('Insufficient')) {
         showNotification('Insufficient SOL balance');
-        speak('You need to add more SOL to your wallet to perform this swap. This is a demo, so you can try again later.');
+        speak('You need to add more SOL to your wallet to perform this swap.');
       } else if (errorMessage.includes('Could not find any route')) {
         showNotification('No swap route available');
         speak('Sorry, there is currently no available route for this swap. Please try again later.');
+      } else if (errorMessage.includes('Blockhash not found')) {
+        showNotification('Transaction expired');
+        speak('The transaction took too long to process and expired. Please try again.');
       } else {
         showNotification('Error swapping tokens');
-        speak('Sorry, there was an error swapping your tokens. For this demo, we\'re simulating the swap process.');
+        speak('Sorry, there was an error swapping your tokens. Please try again later.');
       }
       
-      // For demo purposes, let's simulate a successful swap after 2 seconds
-      console.log('Simulating successful swap for demo purposes...');
-      
-      setTimeout(() => {
-        // Set fake swap data
-        setSwapData({
-          inputToken: 'SOL',
-          outputToken: 'USDC',
-          inputAmount: '50000000', // 0.05 SOL
-          outputAmount: '250000', // Random USDC amount
-          txSignature: 'SimulatedTxSignature' + Date.now().toString()
-        });
-        
-        setIsSwapping(false);
-        setSwapCompleted(true);
-        showNotification('Demo swap completed');
-        speak('For demonstration purposes, I\'ve simulated a successful token swap.');
-      }, 2000);
+      // Inform the user about the error
+      setIsSwapping(false);
     }
   };
 
@@ -656,10 +645,7 @@ export default function Voice() {
                       ? <span>Loading...</span>
                       : (
                         <div className="font-bold">
-                          <span>{walletData.balance.toFixed(4)} SOL</span>
-                          {walletData.balance > 0 && (
-                            <span className="text-xs ml-1">≈ ${(walletData.balance * 142.29).toFixed(2)}</span>
-                          )}
+                        
                         </div>
                       )
                     }
@@ -741,7 +727,7 @@ export default function Voice() {
                     Swap Tokens with Jupiter
                   </button>
                   <p className="mt-2 text-sm text-gray-500">
-                    Or say "Swap Tokens" to swap your SOL to USDC
+                    Or say "Swap Tokens" to swap your SOL to USDC using Jupiter
                   </p>
                 </div>
               )}
@@ -773,7 +759,7 @@ export default function Voice() {
               {swapData.txSignature && (
                 <div className="text-center mt-4">
                   <a 
-                    href={`https://explorer.solana.com/tx/${swapData.txSignature}?cluster=devnet`}
+                    href={`https://explorer.solana.com/tx/${swapData.txSignature}`}
                     target="_blank" 
                     rel="noopener noreferrer"
                     className="text-blue-600 hover:underline flex items-center justify-center"

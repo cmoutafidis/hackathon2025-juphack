@@ -34,9 +34,9 @@ const USDC_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // USDC on 
 
 export async function executeJupiterSwap(
   walletSecretKey: string,
-  inputToken: string = SOL_ADDRESS,
-  outputToken: string = JUP_ADDRESS,
-  maxAmount: boolean = true,
+  inputToken: string,
+  outputToken: string,
+  maxAmount: boolean,
   specificAmount?: string
 ): Promise<SwapResult> {
   try {
@@ -44,8 +44,8 @@ export async function executeJupiterSwap(
     const keypair = getKeypairFromSecretKey(walletSecretKey);
     const publicKey = keypair.publicKey.toString();
     
-    // Create connection to Solana
-    const connection = new web3.Connection(web3.clusterApiUrl('devnet'));
+    // Create connection to Solana (mainnet)
+    const connection = new web3.Connection(web3.clusterApiUrl('mainnet-beta'));
     
     // Get token balance if swapping max amount
     let amount: string;
@@ -62,20 +62,43 @@ export async function executeJupiterSwap(
           const balance = await connection.getBalance(keypair.publicKey);
           console.log('SOL balance:', balance / 1000000000, 'SOL');
           
-          // Handle wallet with known balance (Solscan)
-          if (keypair.publicKey.toString() === '8hE8hihVk1DJyQjk96H41QJCUscqbZU9PmSmpXYCXdBL') {
-            console.log('Known Solscan wallet detected, using confirmed balance from Solscan');
-            // Solscan showed 0.002 SOL
-            const solscanBalance = 2000000; // 0.002 SOL in lamports
+          // Try to get balance from Jupiter API for the most accurate balance
+          try {
+            console.log('Getting real-time balance from Jupiter API');
+            const response = await fetch(`https://lite-api.jup.ag/ultra/v1/balances/${keypair.publicKey.toString()}`, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
             
-            // Leave some SOL for transaction fees
-            const adjustedBalance = Math.max(0, solscanBalance - 500000); // Leave 0.0005 SOL for fees
-            amount = adjustedBalance.toString();
-          } 
-          // If balance is very low, use a minimum swap amount instead of failing
-          else if (balance <= 10000000) { // Less than 0.01 SOL
-            console.log('Balance too low, using default minimum amount');
-            amount = '50000000'; // Use 0.05 SOL as minimum (this is fake for demo)
+            if (response.ok) {
+              const balanceData = await response.json();
+              console.log('Jupiter balances received:', balanceData);
+              
+              if (balanceData && balanceData.SOL && balanceData.SOL.amount) {
+                const jupiterAmount = parseInt(balanceData.SOL.amount);
+                console.log('Using Jupiter reported balance:', jupiterAmount / 1000000000, 'SOL');
+                
+                // Adjust for fees based on balance
+                const feeAmount = jupiterAmount < 10000000 ? 0 : 5000000;
+                amount = Math.max(0, jupiterAmount - feeAmount).toString();
+                console.log('Adjusted amount for fees:', parseInt(amount) / 1000000000, 'SOL');
+                
+                // Continue with this amount - don't return, just use it
+              }
+            }
+            // If Jupiter API call fails, continue with the RPC balance
+            console.log('Could not get Jupiter balance, using RPC balance');
+          } catch (jupiterError) {
+            console.warn('Error getting Jupiter balance, falling back to RPC balance:', jupiterError);
+          }
+          
+          // If Jupiter API call fails, use RPC balance
+          // If balance is very low, use the actual balance instead of failing
+          if (balance <= 10000000) { // Less than 0.01 SOL
+            console.log('Balance is low, using actual balance');
+            amount = balance.toString(); // Use actual balance amount
           } else {
             // Leave some SOL for transaction fees (0.01 SOL)
             const adjustedBalance = Math.max(0, balance - 10000000);
@@ -83,25 +106,22 @@ export async function executeJupiterSwap(
           }
         } catch (balanceError) {
           console.error('Error getting balance:', balanceError);
-          // If we can't get balance, use a safe default amount
-          amount = '50000000'; // Default to 0.05 SOL
+          throw new Error('Failed to get wallet balance');
         }
       } else {
-        // For other tokens, we would need to get token account balance
-        console.log('Using default amount for non-SOL token');
-        amount = '1000000'; // Default amount for non-SOL tokens
+        // For other tokens, we need to get token account balance
+        throw new Error('Non-SOL token swaps require a specific amount');
       }
     } else {
-      // Default amount if nothing else is specified
-      amount = '50000000'; // Default to 0.05 SOL
+      // No default amount - required specific amount
+      throw new Error('Please specify an amount to swap');
     }
     
     console.log('Amount to swap:', amount, '(' + (parseInt(amount) / 1000000000) + ' SOL)');
     
     // Safety check - ensure amount is not 0
     if (amount === '0' || parseInt(amount) === 0) {
-      console.log('Amount was 0, setting to minimum value');
-      amount = '50000000'; // Ensure minimum amount of 0.05 SOL
+      throw new Error('Cannot swap zero amount');
     }
     
     // Get swap quote
@@ -114,62 +134,131 @@ export async function executeJupiterSwap(
     
     // Deserialize and sign the transaction
     console.log('Deserializing and signing transaction');
-    const transaction = web3.Transaction.from(
-      Buffer.from(swapResponse.swapTransaction, 'base64')
-    );
     
-    // Sign and send the transaction
-    console.log('Sending transaction to Solana');
-    const signature = await web3.sendAndConfirmTransaction(
-      connection,
-      transaction,
-      [keypair]
-    );
+    const transactionBuffer = Buffer.from(swapResponse.swapTransaction, 'base64');
+    let transaction;
+    
+    let signature: string;
+    
+    // Try to deserialize as versioned transaction first, then legacy if that fails
+    try {
+      const versionedTx = web3.VersionedTransaction.deserialize(transactionBuffer);
+      console.log('Deserialized as VersionedTransaction');
+      
+      // For versioned transactions, we need to use a different approach
+      // Get a fresh blockhash before sending the transaction
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      
+      // Create new message with updated blockhash
+      const messageV0 = new web3.MessageV0({
+        header: versionedTx.message.header,
+        staticAccountKeys: versionedTx.message.staticAccountKeys,
+        recentBlockhash: blockhash,
+        compiledInstructions: versionedTx.message.compiledInstructions,
+        addressTableLookups: versionedTx.message.addressTableLookups
+      });
+      
+      // Create a new transaction with the updated message
+      const newVersionedTx = new web3.VersionedTransaction(messageV0);
+      newVersionedTx.sign([keypair]);
+      
+      // Send the transaction
+      console.log('Sending versioned transaction with fresh blockhash');
+      signature = await connection.sendTransaction(newVersionedTx, {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+        maxRetries: 3
+      });
+      
+      // Wait for confirmation with the fresh blockhash
+      const confirmationOptions = {
+        blockhash,
+        lastValidBlockHeight,
+        signature
+      };
+      
+      console.log('Waiting for versioned transaction confirmation...');
+      const confirmation = await connection.confirmTransaction(confirmationOptions, 'confirmed');
+      
+      // Check for errors in confirmation
+      if (confirmation.value.err) {
+        console.error('Versioned transaction confirmation error:', confirmation.value.err);
+        throw new Error(`Transaction failed: ${confirmation.value.err}`);
+      }
+    } catch (versionedError) {
+      // If versioned transaction fails, try legacy
+      console.log('Not a versioned transaction or error handling versioned tx:', versionedError);
+      console.log('Falling back to legacy transaction format');
+      
+      transaction = web3.Transaction.from(transactionBuffer);
+      console.log('Deserialized as legacy Transaction');
+    
+      // For legacy transaction - continue here
+      // Get a fresh blockhash before sending the transaction
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+      
+      // Apply the new blockhash to the transaction
+      transaction.recentBlockhash = blockhash;
+      transaction.lastValidBlockHeight = lastValidBlockHeight;
+      
+      // Re-sign with the keypair after updating blockhash
+      transaction.partialSign(keypair);
+      
+      // Send the transaction
+      console.log('Sending legacy transaction to Solana with fresh blockhash');
+      signature = await connection.sendTransaction(transaction, [keypair], {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+        maxRetries: 3
+      });
+      
+      // Wait for confirmation with the fresh blockhash
+      const confirmationOptions = {
+        blockhash,
+        lastValidBlockHeight,
+        signature
+      };
+      
+      console.log('Waiting for transaction confirmation...');
+      const confirmation = await connection.confirmTransaction(confirmationOptions, 'confirmed');
+      
+      // Check for errors in confirmation
+      if (confirmation.value.err) {
+        console.error('Legacy transaction confirmation error:', confirmation.value.err);
+        throw new Error(`Transaction failed: ${confirmation.value.err}`);
+      }
+    }
+    
+    // Transaction is now confirmed
     
     console.log('Transaction completed with signature:', signature);
     
-    // Return swap result
+    // Return swap result using real data from Jupiter API
     return {
       success: true,
-      inputAmount: amount,
+      inputAmount: quoteResponse.inAmount,
       outputAmount: quoteResponse.outAmount,
       inputToken: inputToken === SOL_ADDRESS ? 'SOL' : inputToken,
-      outputToken: outputToken === JUP_ADDRESS ? 'JUP' : outputToken,
+      outputToken: outputToken === USDC_ADDRESS ? 'USDC' : (outputToken === JUP_ADDRESS ? 'JUP' : outputToken),
       txSignature: signature
     };
   } catch (error) {
     console.error('Error executing Jupiter swap:', error);
     
-    // If the error occurred while using JUP token, try again with USDC
-    if (outputToken === JUP_ADDRESS && inputToken === SOL_ADDRESS) {
-      console.log('JUP swap failed, trying fallback to USDC');
-      try {
-        // Try the swap with USDC instead
-        const fallbackResult = await executeJupiterSwap(
-          walletSecretKey,
-          SOL_ADDRESS,
-          USDC_ADDRESS,
-          maxAmount,
-          specificAmount
-        );
-        
-        // If successful, convert output token name to make it look like the original request succeeded
-        if (fallbackResult.success) {
-          fallbackResult.outputToken = 'JUP';
-          return fallbackResult;
-        }
-      } catch (fallbackError) {
-        console.error('Fallback swap also failed:', fallbackError);
-      }
-    }
+    // Don't use fallback tokens - just propagate the original error
+    console.log('Swap failed with error, no fallback will be attempted');
+    
+    // Create detailed error result
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Full error details:', errorMessage);
     
     return {
       success: false,
       inputAmount: '0',
       outputAmount: '0',
       inputToken: inputToken === SOL_ADDRESS ? 'SOL' : inputToken,
-      outputToken: outputToken === JUP_ADDRESS ? 'JUP' : outputToken,
-      error: error instanceof Error ? error.message : 'Unknown error'
+      outputToken: outputToken === USDC_ADDRESS ? 'USDC' : (outputToken === JUP_ADDRESS ? 'JUP' : outputToken),
+      error: errorMessage
     };
   }
 }

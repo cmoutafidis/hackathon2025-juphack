@@ -21,8 +21,8 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     
-    // Get the balance
-    const balance = await getSolanaBalance(walletAddress, 'devnet');
+    // Get the balance from mainnet
+    const balance = await getSolanaBalance(walletAddress, 'mainnet-beta');
     
     // Return the balance
     return NextResponse.json({

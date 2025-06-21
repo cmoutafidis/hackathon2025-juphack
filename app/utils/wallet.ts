@@ -110,7 +110,7 @@ export function generateRandomKeypair(): web3.Keypair {
  * @param {string} network - Network to connect to: 'mainnet-beta', 'testnet', 'devnet'
  * @returns {web3.Connection} Solana connection
  */
-export function getSolanaConnection(network: 'mainnet-beta' | 'testnet' | 'devnet' = 'devnet'): web3.Connection {
+export function getSolanaConnection(network: 'mainnet-beta' | 'testnet' | 'devnet' = 'mainnet-beta'): web3.Connection {
   let endpoint: string;
   
   switch (network) {
@@ -137,7 +137,7 @@ export function getSolanaConnection(network: 'mainnet-beta' | 'testnet' | 'devne
  */
 export async function getSolanaBalance(
   walletAddress: string, 
-  network: 'mainnet-beta' | 'testnet' | 'devnet' = 'devnet'
+  network: 'mainnet-beta' | 'testnet' | 'devnet' = 'mainnet-beta'
 ): Promise<number> {
   try {
     if (!isValidSolanaAddress(walletAddress)) {
