@@ -1,0 +1,180 @@
+/**
+ * API Route for Jupiter Token Swap
+ * 
+ * This route handles token swap requests using Jupiter API.
+ * It takes a wallet address and secret key, and swaps the maximum
+ * amount of tokens (usually SOL to JUP).
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { executeJupiterSwap } from '@/app/utils/jupiterSwap';
+import { isValidSolanaAddress } from '@/app/utils/wallet';
+
+export async function POST(request: NextRequest) {
+  try {
+    // Parse request body
+    const body = await request.json();
+    const { walletAddress, secretKey, inputToken, outputToken, confirmedBalance } = body;
+    
+    // Validate wallet address
+    if (!walletAddress || !isValidSolanaAddress(walletAddress)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid wallet address' },
+        { status: 400 }
+      );
+    }
+    
+    // Validate secret key (basic validation)
+    if (!secretKey) {
+      return NextResponse.json(
+        { success: false, error: 'Secret key is required' },
+        { status: 400 }
+      );
+    }
+    
+    // Validate required fields
+    if (!inputToken) {
+      return NextResponse.json(
+        { success: false, error: 'Input token address is required' },
+        { status: 400 }
+      );
+    }
+    
+    if (!outputToken) {
+      return NextResponse.json(
+        { success: false, error: 'Output token address is required' },
+        { status: 400 }
+      );
+    }
+    
+    console.log('Executing Jupiter swap with input token:', inputToken);
+    console.log('Output token:', outputToken);
+    
+    // If we have a confirmed balance from frontend, log it
+    if (confirmedBalance) {
+      console.log('Using confirmed balance from UI:', confirmedBalance, 'SOL');
+    }
+    
+    let swapResult;
+    
+    try {
+      // Always get actual balance from Jupiter API to ensure we have the most current data
+      let actualAmount;
+      
+      // Get balance from Jupiter API for real-time data
+      const balanceResponse = await fetch(`https://lite-api.jup.ag/ultra/v1/balances/${walletAddress}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!balanceResponse.ok) {
+        throw new Error(`Failed to fetch balance from Jupiter: ${balanceResponse.status}`);
+      }
+      
+      const balanceData = await balanceResponse.json();
+      console.log('Jupiter balances data:', balanceData);
+      
+      // Use the balance from Jupiter API if available
+      if (balanceData && balanceData.SOL && balanceData.SOL.amount) {
+        // Use Jupiter reported amount, leaving some for gas fees
+        const jupiterAmount = parseInt(balanceData.SOL.amount);
+        console.log('Using Jupiter reported balance:', jupiterAmount / 1000000000, 'SOL');
+        
+        // If the amount is very small, don't reserve any for gas fees
+        // Otherwise, leave 0.005 SOL for fees
+        const feeAmount = jupiterAmount < 10000000 ? 0 : 5000000;
+        actualAmount = Math.max(0, jupiterAmount - feeAmount).toString();
+        console.log('Adjusted amount for fees:', parseInt(actualAmount) / 1000000000, 'SOL');
+        
+        // Log comparison with UI balance if provided
+        if (confirmedBalance) {
+          console.log('UI reported balance:', parseFloat(confirmedBalance), 'SOL (not used)');
+        }
+      } else {
+        throw new Error('Could not determine balance from Jupiter API');
+      }
+      
+      if (parseInt(actualAmount) <= 0) {
+        return NextResponse.json(
+          { success: false, error: 'Insufficient balance for swap' },
+          { status: 400 }
+        );
+      }
+      
+      console.log('Executing swap with verified balance of', parseInt(actualAmount) / 1000000000, 'SOL');
+      
+      // Execute the swap with the verified balance
+      try {
+        swapResult = await executeJupiterSwap(
+          secretKey,
+          inputToken,
+          outputToken,
+          false, // Not using maxAmount here since we're providing a specific amount
+          actualAmount // Use the actual verified amount
+        );
+        console.log('Swap execution completed successfully');
+      } catch (swapError) {
+        console.error('Swap execution error:', swapError);
+        // Check for specific blockhash error to provide better error message
+        const errorMessage = swapError instanceof Error ? swapError.message : String(swapError);
+        
+        if (errorMessage.includes('Blockhash not found')) {
+          throw new Error('Transaction expired: blockhash not found. Please try again.');
+        } else {
+          throw swapError;
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching balance or executing swap:', error);
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: error instanceof Error ? error.message : 'Failed to process swap'
+        },
+        { status: 500 }
+      );
+    }
+    
+    // Return swap result
+    if (swapResult.success) {
+      return NextResponse.json({
+        success: true,
+        walletAddress,
+        swapResult: {
+          inputToken: swapResult.inputToken,
+          outputToken: swapResult.outputToken,
+          inputAmount: swapResult.inputAmount,
+          outputAmount: swapResult.outputAmount,
+          txSignature: swapResult.txSignature
+        }
+      });
+    } else {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: swapResult.error || 'Swap failed',
+          walletAddress
+        },
+        { status: 500 }
+      );
+    }
+  } catch (error) {
+    console.error('Error in swap API:', error);
+    
+    // Return error response
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * This is a server-side only endpoint that requires Node.js
+ */
+export const runtime = 'nodejs';

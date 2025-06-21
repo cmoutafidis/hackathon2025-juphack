@@ -2,9 +2,18 @@
 import React, { useState } from "react";
 import { Send, Mic, TrendingUp, Loader2, Sun, Moon } from "lucide-react";
 
+// Define message type for type safety
+type MessageType = {
+  id: number;
+  text?: string;
+  sender: string;
+  type?: string;
+  timestamp: Date;
+};
+
 export default function ChatbotUI() {
   const [inputMessage, setInputMessage] = useState("");
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState<MessageType[]>([]);
   const [showLoadingPopup, setShowLoadingPopup] = useState(false);
   const [swapPrice, setSwapPrice] = useState("$127.45");
   const [darkMode, setDarkMode] = useState(false);
@@ -46,8 +55,7 @@ export default function ChatbotUI() {
       setInputMessage("");
     }
   };
-
-  const handleKeyPress = (e) => {
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       handleSendMessage();
     }
@@ -75,8 +83,7 @@ export default function ChatbotUI() {
   const handleVoiceInput = () => {
     console.log("Voice input clicked");
   };
-const i=0;
-  const renderMessage = (message) => {
+const i=0;  const renderMessage = (message: MessageType) => {
     if (message.type === "trading") {
       return (
         <div key={message.id} className="flex justify-start mb-4 px-4">
@@ -218,10 +225,9 @@ const i=0;
       </div>
     );
   };
-
   return (
     <div
-      className={`w-screen h-screen p-0 overflow-hidden transition-all duration-500 ${
+      className={`w-full h-full min-h-screen p-0 overflow-hidden transition-all duration-500 ${
         darkMode
           ? "bg-gray-900"
           : "bg-gradient-to-br from-blue-50 via-white to-emerald-50"
