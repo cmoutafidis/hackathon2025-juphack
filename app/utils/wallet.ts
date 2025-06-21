@@ -128,3 +128,115 @@ export function getSolanaConnection(network: 'mainnet-beta' | 'testnet' | 'devne
   
   return new web3.Connection(endpoint);
 }
+
+/**
+ * Gets the SOL balance for a wallet address
+ * @param {string} walletAddress - The Solana wallet address
+ * @param {string} network - Network to connect to: 'mainnet-beta', 'testnet', 'devnet'
+ * @returns {Promise<number>} Balance in SOL (not lamports)
+ */
+export async function getSolanaBalance(
+  walletAddress: string, 
+  network: 'mainnet-beta' | 'testnet' | 'devnet' = 'devnet'
+): Promise<number> {
+  try {
+    if (!isValidSolanaAddress(walletAddress)) {
+      throw new Error('Invalid Solana address');
+    }
+    
+    const connection = getSolanaConnection(network);
+    const publicKey = new web3.PublicKey(walletAddress);
+    // Get the balance in lamports
+    const balanceInLamports = await connection.getBalance(publicKey);
+    console.log(`Balance for ${walletAddress} in lamports:`, balanceInLamports);
+    // Convert lamports to SOL (1 SOL = 1,000,000,000 lamports)
+    const balanceInSol = balanceInLamports / 1_000_000_000;
+    
+    return balanceInSol;
+  } catch (error) {
+    console.error('Error getting Solana balance:', error);
+    throw new Error('Failed to fetch wallet balance');
+  }
+}
+
+// Native SOL token address constant
+export const SOL_ADDRESS = 'So11111111111111111111111111111111111111112';
+
+/**
+ * Interface for token balance information returned by Jupiter API
+ */
+export interface TokenBalance {
+  mint: string;
+  owner: string;
+  amount: string;
+  decimals: number;
+  uiAmount: number;
+  symbol?: string;  // Optional symbol field for display
+}
+
+/**
+ * Get all token balances for a wallet using Jupiter API
+ * @param walletAddress The Solana wallet address
+ * @returns Promise with an array of token balances
+ */
+export async function getJupiterBalances(walletAddress: string): Promise<TokenBalance[]> {
+  try {
+    if (!isValidSolanaAddress(walletAddress)) {
+      throw new Error('Invalid Solana address');
+    }
+    
+    console.log(`Fetching Jupiter balances for ${walletAddress}`);
+    
+    // Call Jupiter API to get all token balances
+    const response = await fetch(`https://lite-api.jup.ag/ultra/v1/balances/${walletAddress}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Jupiter API error response:', errorText);
+      throw new Error(`Jupiter API request failed with status ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log('Jupiter balances received:', data);
+    
+    // Transform the response to the expected format
+    if (Array.isArray(data)) {
+      return data;
+    } else if (data && typeof data === 'object') {
+      if (data.tokens && Array.isArray(data.tokens)) {
+        // Some Jupiter API versions return { tokens: [...] }
+        return data.tokens;
+      } else {
+        // Jupiter API is returning an object format like {SOL: {...}, USDC: {...}}
+        // Convert to array of token balances
+        const tokenBalances: TokenBalance[] = [];
+        for (const [symbol, details] of Object.entries(data)) {
+          if (details && typeof details === 'object') {
+            const tokenDetails = details as any;
+            tokenBalances.push({
+              mint: symbol === 'SOL' ? SOL_ADDRESS : symbol,
+              owner: walletAddress,
+              amount: tokenDetails.amount || '0',
+              decimals: symbol === 'SOL' ? 9 : (tokenDetails.decimals || 0),
+              uiAmount: tokenDetails.uiAmount || 0,
+              symbol: symbol // Add symbol field for display purposes
+            } as TokenBalance);
+          }
+        }
+        return tokenBalances;
+      }
+    } else {
+      console.warn('Jupiter API returned unexpected format:', data);
+      return []; // Return empty array as fallback
+    }
+  } catch (error) {
+    console.error('Error fetching Jupiter balances:', error);
+    throw new Error('Failed to fetch token balances');
+  }
+}

@@ -1,32 +1,34 @@
 /**
- * API Route for Solana Wallet Generation
+ * API Route for Generating Solana Wallet
  * 
- * This route handler creates a new Solana wallet and returns
- * the address and seed phrase.
+ * This route generates a new Solana wallet with a mnemonic phrase
+ * and returns the wallet address, seed phrase, and secret key.
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { generateSolanaWallet } from '@/app/utils/wallet';
 
-export async function GET() {
+export async function POST(request: NextRequest) {
   try {
-    // Generate a new Solana wallet
+    // Generate a new wallet
     const walletData = await generateSolanaWallet();
     
-    // Return wallet data without the secret key for security
+    // Return the wallet data
     return NextResponse.json({
       success: true,
       address: walletData.address,
-      seedPhrase: walletData.seedPhrase
+      seedPhrase: walletData.seedPhrase,
+      secretKey: walletData.secretKey
     });
+    
   } catch (error) {
-    console.error('Error in wallet generation API:', error);
+    console.error('Error generating wallet:', error);
     
     // Return error response
     return NextResponse.json(
       { 
         success: false, 
-        error: 'Failed to generate wallet' 
+        error: error instanceof Error ? error.message : 'Unknown error' 
       },
       { status: 500 }
     );
@@ -34,7 +36,6 @@ export async function GET() {
 }
 
 /**
- * This is a server-side only endpoint, so we explicitly
- * set the runtime to be 'nodejs'
+ * This is a server-side only endpoint that requires Node.js
  */
 export const runtime = 'nodejs';
