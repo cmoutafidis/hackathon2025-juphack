@@ -29,7 +29,6 @@ const SOL_ADDRESS = 'So11111111111111111111111111111111111111112'; // Native SOL
 // JUP token address - Devnet/Mainnet compatible 
 // Note: Using correct JUP mint address for Solana (v6 compliant)
 const JUP_ADDRESS = 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN'; // JUP token correct address
-const USDC_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'; // USDC on Solana (kept for reference)
 
 
 export async function executeJupiterSwap(
@@ -239,7 +238,7 @@ export async function executeJupiterSwap(
       inputAmount: quoteResponse.inAmount,
       outputAmount: quoteResponse.outAmount,
       inputToken: inputToken === SOL_ADDRESS ? 'SOL' : inputToken,
-      outputToken: outputToken === USDC_ADDRESS ? 'USDC' : (outputToken === JUP_ADDRESS ? 'JUP' : outputToken),
+      outputToken: outputToken === JUP_ADDRESS ? 'JUP' : outputToken,
       txSignature: signature
     };
   } catch (error) {
@@ -257,7 +256,7 @@ export async function executeJupiterSwap(
       inputAmount: '0',
       outputAmount: '0',
       inputToken: inputToken === SOL_ADDRESS ? 'SOL' : inputToken,
-      outputToken: outputToken === USDC_ADDRESS ? 'USDC' : (outputToken === JUP_ADDRESS ? 'JUP' : outputToken),
+      outputToken: outputToken === JUP_ADDRESS ? 'JUP' : outputToken,
       error: errorMessage
     };
   }

@@ -3,7 +3,7 @@
  * 
  * This route handles token swap requests using Jupiter API.
  * It takes a wallet address and secret key, and swaps the maximum
- * amount of tokens (usually SOL to JUP).
+ * amount of tokens (SOL to JUP).
  */
 
 import { NextRequest, NextResponse } from 'next/server';

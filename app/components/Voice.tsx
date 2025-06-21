@@ -426,9 +426,9 @@ export default function Voice() {
         body: JSON.stringify({
           walletAddress: walletData.address,
           secretKey: walletData.secretKey,
-          // Default to SOL -> USDC swap
+          // Default to SOL -> JUP swap
           inputToken: 'So11111111111111111111111111111111111111112', // SOL
-          outputToken: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC address
+          outputToken: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', // JUP token address
           // Add confirmed balance to inform the swap process
           confirmedBalance: walletData.balance.toString()
         })
