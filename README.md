@@ -1,6 +1,9 @@
 # Solana Voice Assistant - JupHack
 
+
 ![Solana Voice Assistant](/public/preview.png)
+
+
 
 A voice-controlled Solana wallet and token swap application built with Next.js and integrated with Jupiter Swap API. This application allows users to create Solana wallets and perform token swaps using simple voice commands.
 
@@ -42,27 +45,10 @@ Make sure you have Node.js (v18 or newer) and npm/yarn/pnpm installed on your sy
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/juphack.git
+   git clone https://github.com/goodfornothing-code/juphack.git
    cd juphack
    ```
 
-2. Install dependencies:
-   ```bash
-   npm install
-   # or
-   yarn install
-   # or
-   pnpm install
-   ```
-
-3. Start the development server:
-   ```bash
-   npm run dev
-   # or
-   yarn dev
-   # or
-   pnpm dev
-   ```
 
 4. Open [http://localhost:3000](http://localhost:3000) in your web browser.
 
@@ -104,3 +90,4 @@ The application supports the following voice commands:
 - [Jupiter Aggregator](https://jup.ag/) for providing the swap API
 - [Solana Foundation](https://solana.com/) for the blockchain infrastructure
 - [Vercel](https://vercel.com/) for hosting and deployment
+=======
