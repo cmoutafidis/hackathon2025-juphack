@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Mic, Copy, AlertTriangle, Volume2, RefreshCw, ArrowRight } from 'lucide-react';
+import { Mic, Copy, AlertTriangle, Volume2, RefreshCw, ArrowRight, Sun, Moon } from 'lucide-react';
 
 export default function Voice() {
   const [isListening, setIsListening] = useState(false);
@@ -11,6 +11,9 @@ export default function Voice() {
   const [swapCompleted, setSwapCompleted] = useState(false);
   const [notification, setNotification] = useState({ show: false, message: '' });
   const [transcript, setTranscript] = useState('');
+  const [listeningTime, setListeningTime] = useState(0);
+  const [darkMode, setDarkMode] = useState(false);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
   
   // Speech recognition and synthesis references
   const recognitionRef = useRef<any>(null);
@@ -39,13 +42,54 @@ export default function Voice() {
   // Flag to track if we're fetching balance
   const [isFetchingBalance, setIsFetchingBalance] = useState(false);
 
-  // SIMPLIFIED SPEECH RECOGNITION IMPLEMENTATION
+  // Theme styles
+  const themeStyles = {
+    light: {
+      bg: 'bg-gradient-to-r from-[#2a7b9b] via-[#57c785] to-[#eddd53]',
+      container: 'bg-white/90 backdrop-blur-md border-white/20',
+      card: 'bg-white/80 border-white/30',
+      textPrimary: 'text-gray-900',
+      textSecondary: 'text-gray-700',
+      button: 'bg-white/10 hover:bg-white/20 text-gray-900 border-white/20',
+      voiceButton: 'bg-blue-600 hover:bg-blue-700',
+      voiceButtonActive: 'bg-red-600 ring-red-400/30',
+      notification: 'bg-gradient-to-r from-[#2a7b9b] to-[#57c785]'
+    },
+    dark: {
+      bg: 'bg-gradient-to-r from-gray-900 via-gray-800 to-gray-700',
+      container: 'bg-gray-800/90 backdrop-blur-md border-gray-700',
+      card: 'bg-gray-800/80 border-gray-600',
+      textPrimary: 'text-white',
+      textSecondary: 'text-gray-300',
+      button: 'bg-gray-700/80 hover:bg-gray-600/80 text-white border-gray-600',
+      voiceButton: 'bg-gradient-to-r from-[#2a7b9b] to-[#57c785] hover:from-[#2a7b9b]/90 hover:to-[#57c785]/90',
+      voiceButtonActive: 'bg-gradient-to-r from-red-500 to-pink-500 ring-pink-400/30 animate-pulse',
+      notification: 'bg-gradient-to-r from-[#2a7b9b] to-[#57c785]',
+      borderGlow: 'border-gradient-to-r from-[#2a7b9b] via-[#57c785] to-[#eddd53] border-2'
+    }
+  };
+
+  // Initialize speech recognition
   useEffect(() => {
     // Initialize speech synthesis
     if (typeof window !== 'undefined') {
       speechSynthesisRef.current = window.speechSynthesis;
     }
-    
+
+    // Initialize speech recognition only if supported
+    if (typeof window !== 'undefined') {
+      // @ts-ignore
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (SpeechRecognition) {
+        recognitionRef.current = new SpeechRecognition();
+        recognitionRef.current.lang = 'en-US';
+        recognitionRef.current.continuous = false;
+        recognitionRef.current.interimResults = false;
+      } else {
+        recognitionRef.current = null;
+      }
+    }
+
     // Clean up on unmount
     return () => {
       if (recognitionRef.current) {
@@ -55,6 +99,7 @@ export default function Voice() {
           console.log('Error stopping recognition:', err);
         }
       }
+      if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
 
@@ -69,84 +114,105 @@ export default function Voice() {
           console.log('Error stopping recognition:', err);
         }
       }
+      if (timerRef.current) clearInterval(timerRef.current);
+      setListeningTime(0);
       return;
     }
-    
-    // Start listening
-    try {
-      // @ts-ignore
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      
-      if (!SpeechRecognition) {
-        showNotification('Speech recognition not supported in your browser');
-        setIsListening(false);
-        return;
+
+    // Check if SpeechRecognition is available
+    if (!recognitionRef.current) {
+      showNotification('Speech recognition not supported in your browser');
+      setIsListening(false);
+      return;
+    }
+
+    // Start listening timer
+    setListeningTime(10);
+    timerRef.current = setInterval(() => {
+      setListeningTime(prev => {
+        if (prev <= 1) {
+          setIsListening(false);
+          if (recognitionRef.current) {
+            recognitionRef.current.stop();
+          }
+          if (timerRef.current) clearInterval(timerRef.current);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Add event handlers (re-attach every time)
+    recognitionRef.current.onresult = (event: any) => {
+      const text = event.results[0][0].transcript.toLowerCase();
+      setTranscript(text);
+      processVoiceCommand(text);
+    };
+
+    recognitionRef.current.onend = () => {
+      // Only restart if still listening and timer not expired
+      if (isListening && listeningTime > 0) {
+        try {
+          recognitionRef.current.start();
+        } catch (err) {
+          showNotification('Speech recognition error: could not restart');
+        }
       }
-      
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.lang = 'en-US';
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      
-      // Add event handlers
-      recognitionRef.current.onresult = (event: any) => {
-        const text = event.results[0][0].transcript.toLowerCase();
-        console.log('HEARD:', text);
-        setTranscript(text);
-        
-        // Command processing
-        if (text.includes('hello') || text.includes('hi') || text.includes('hey')) {
-          sayHello();
-        } else if (text.includes('create wallet') || text.includes('generate wallet') || text.includes('new wallet')) {
-          console.log("Detected wallet creation command");
-          generateWallet();
-        } else if (text.includes('swap') || text.includes('exchange') || text.includes('trade') || text.includes('swap token')) {
-          console.log("Detected swap command");
-          if (walletGenerated) {
-            swapTokens();
-          } else {
-            showNotification('Please create a wallet first');
-            speak('Please create a wallet first before swapping tokens');
-          }
-        } else if (text.includes('solana')) {
-          sayHelp();
-        }
-      };
-      
-      recognitionRef.current.onend = () => {
-        console.log('Recognition ended - restarting');
-        // Restart recognition if still in listening mode
-        if (isListening) {
-          try {
-            setTimeout(() => {
-              if (isListening && recognitionRef.current) {
-                recognitionRef.current.start();
-              }
-            }, 100);
-          } catch (err) {
-            console.log('Error restarting recognition:', err);
-          }
-        }
-      };
-      
-      recognitionRef.current.onerror = (event: any) => {
-        console.log('Recognition error:', event.error);
-        // Don't stop on network errors
-        if (event.error !== 'network' && event.error !== 'aborted') {
-          showNotification('Speech recognition error: ' + event.error);
-        }
-      };
-      
-      // Start recognition
+    };
+
+    recognitionRef.current.onerror = (event: any) => {
+      if (event.error !== 'network' && event.error !== 'aborted') {
+        showNotification('Speech recognition error: ' + event.error);
+      }
+      setIsListening(false);
+    };
+
+    // Start recognition
+    try {
       recognitionRef.current.start();
-      console.log('Recognition started');
-      
     } catch (err) {
-      console.error('Error initializing speech recognition:', err);
       showNotification('Failed to start speech recognition');
       setIsListening(false);
     }
-  }, [isListening, walletGenerated]);
+
+    // Clean up event handlers on effect cleanup
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.onerror = null;
+        try {
+          recognitionRef.current.stop();
+        } catch (err) {}
+      }
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [isListening]);
+
+  // Process voice commands
+  const processVoiceCommand = (command: string) => {
+    if (command.includes('hello') || command.includes('hi') || command.includes('hey')) {
+      sayHello();
+    } else if (command.includes('create wallet') || command.includes('generate wallet') || command.includes('new wallet')) {
+      console.log("Detected wallet creation command");
+      generateWallet();
+    } else if (command.includes('swap') || command.includes('exchange') || command.includes('trade') || command.includes('swap token')) {
+      console.log("Detected swap command");
+      if (walletGenerated) {
+        swapTokens();
+      } else {
+        showNotification('Please create a wallet first');
+        speak('Please create a wallet first before swapping tokens');
+      }
+    } else if (command.includes('solana')) {
+      sayHelp();
+    }
+  };
+
+  // Toggle listening state
+  const toggleListening = () => {
+    setIsListening(!isListening);
+  };
 
   // SIMPLIFIED HELPERS FOR COMMON RESPONSES
   const sayHello = () => {
@@ -186,11 +252,6 @@ export default function Voice() {
     } catch (err) {
       console.error('Speech synthesis error:', err);
     }
-  };
-
-  // Toggle microphone listening state
-  const toggleListening = () => {
-    setIsListening(!isListening);
   };
 
   // Generate wallet
@@ -394,7 +455,7 @@ export default function Voice() {
       }
     }
     
-    // Warn if balance appears too low (less than 0.05 SOL)
+    // Warn if balance appears to low (less than 0.05 SOL)
     if (walletData.balance < 0.05) {
       showNotification('Warning: Low balance detected');
       speak('Your wallet has a low balance. The swap may not succeed if there is insufficient SOL.');
@@ -554,43 +615,97 @@ export default function Voice() {
     }
   };
 
+  // Toggle dark mode
+  const toggleDarkMode = () => {
+    setDarkMode(!darkMode);
+  };
+
   return (
-    <main className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8 text-black">
-      <div className="max-w-3xl mx-auto bg-white rounded-xl shadow-md overflow-hidden">
-        <div className="p-8">
-          <h1 className="text-3xl font-bold text-center text-blue-600 pb-6 border-b border-gray-200">
+    <main className={`min-h-screen ${darkMode ? themeStyles.dark.bg : themeStyles.light.bg} py-8 px-4 sm:px-6 lg:px-8`}>
+      {/* Theme Toggle Button */}
+      <button
+        onClick={toggleDarkMode}
+        className={`fixed top-4 right-4 z-50 p-2 rounded-full ${darkMode ? 'bg-gray-700 text-yellow-300' : 'bg-white text-gray-800'}`}
+      >
+        {darkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
+      </button>
+
+      <div className={`max-w-4xl mx-auto ${darkMode ? themeStyles.dark.container : themeStyles.light.container} rounded-xl shadow-2xl overflow-hidden ${darkMode ? 'border-transparent relative' : 'border-white/20'}`}>
+        {/* Dark mode border glow effect */}
+        {darkMode && (
+          <div className="absolute inset-0 rounded-xl pointer-events-none overflow-hidden">
+            <div className="absolute inset-0 rounded-xl" style={{
+              background: 'linear-gradient(90deg, rgba(42, 123, 155, 0.3) 0%, rgba(87, 199, 133, 0.3) 50%, rgba(237, 221, 83, 0.3) 100%)',
+              boxShadow: '0 0 20px rgba(87, 199, 133, 0.5)',
+              filter: 'blur(8px)'
+            }}></div>
+          </div>
+        )}
+
+        <div className="p-6 relative">
+          <h1 className={`text-4xl font-bold text-center mb-6 ${darkMode ? themeStyles.dark.textPrimary : themeStyles.light.textPrimary}`}>
             Solana Voice Assistant
           </h1>
           
           {/* Instructions */}
-          <div className="mt-6 bg-gray-50 p-4 rounded-lg border border-gray-200">
-            <p className="font-medium">Voice Commands:</p>
-            <p className="mt-1">• Say "<strong>Hello</strong>" and the assistant will greet you</p>
-            <p className="mt-1">• Say "<strong>Create Wallet</strong>" to generate a new Solana wallet</p>
-            <p className="mt-1">• Say "<strong>Swap Tokens</strong>" to swap SOL to USDC using Jupiter API</p>
+          <div className={`mt-4 ${darkMode ? themeStyles.dark.card : themeStyles.light.card} p-4 rounded-lg border ${darkMode ? 'border-gray-600' : 'border-white/20'}`}>
+            <p className={`font-medium ${darkMode ? themeStyles.dark.textPrimary : themeStyles.light.textPrimary}`}>Voice Commands:</p>
+            <div className={`mt-2 space-y-1 ${darkMode ? themeStyles.dark.textSecondary : themeStyles.light.textSecondary}`}>
+              <p>• Say "<span className="font-semibold">Hello</span>" for a greeting</p>
+              <p>• Say "<span className="font-semibold">Create Wallet</span>" to generate a new Solana wallet</p>
+              <p>• Say "<span className="font-semibold">Swap Tokens</span>" to exchange SOL to USDC</p>
+            </div>
           </div>
           
           {/* Voice Assistant Section */}
           <div className="mt-8 text-center">
-            <button 
-              onClick={toggleListening}
-              className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto shadow-md transition-all transform hover:scale-105 ${
-                isListening ? 'bg-red-600 animate-pulse' : 'bg-blue-600'
-              }`}
-            >
-              <Mic className="w-10 h-10 text-white" />
-            </button>
+            <div className="relative inline-block">
+              <button 
+                onClick={toggleListening}
+                className={`relative w-24 h-24 rounded-full flex items-center justify-center mx-auto shadow-lg transition-all transform hover:scale-105 z-10 ${
+                  isListening 
+                    ? darkMode 
+                      ? themeStyles.dark.voiceButtonActive 
+                      : themeStyles.light.voiceButtonActive
+                    : darkMode 
+                      ? themeStyles.dark.voiceButton 
+                      : themeStyles.light.voiceButton
+                }`}
+              >
+                <Mic className="w-10 h-10 text-white" />
+                {isListening && (
+                  <span className="absolute -top-2 -right-2 bg-red-500 text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center">
+                    {listeningTime}
+                  </span>
+                )}
+              </button>
+              
+              {/* Voice waves animation */}
+              {isListening && (
+                <>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className={`animate-ping absolute h-28 w-28 rounded-full ${
+                      darkMode ? 'bg-pink-400/30' : 'bg-white/30'
+                    } opacity-75`}></div>
+                  </div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className={`animate-ping absolute h-32 w-32 rounded-full ${
+                      darkMode ? 'bg-pink-400/20' : 'bg-white/20'
+                    } opacity-75 delay-300`}></div>
+                  </div>
+                </>
+              )}
+            </div>
             
-            <p className="mt-4 text-gray-600 italic">
+            <p className={`mt-4 ${darkMode ? themeStyles.dark.textSecondary : 'text-white/80'} italic`}>
               {isListening 
-                ? 'Listening... Try saying "Hello", "Create Wallet", or "Swap Tokens"' 
-                : 'Click the microphone to begin listening'}
+                ? 'Listening... Speak your command' 
+                : 'Tap the microphone to begin'}
             </p>
             
             {transcript && (
-              <div className="mt-2 text-sm font-medium">
-                <span className="text-gray-500">Last heard: </span>
-                <span className="text-blue-600">{transcript}</span>
+              <div className={`mt-3 ${darkMode ? 'bg-gray-700' : 'bg-black/20'} px-4 py-2 rounded-full inline-block`}>
+                <span className={darkMode ? themeStyles.dark.textPrimary : 'text-white font-medium'}>{transcript}</span>
               </div>
             )}
           </div>
@@ -598,109 +713,102 @@ export default function Voice() {
           {/* Loading States */}
           {isLoading && (
             <div className="mt-8 text-center">
-              <p className="text-lg text-blue-600 mb-3">Please wait, generating your Solana wallet...</p>
-              <div className="inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <p className={`text-lg ${darkMode ? themeStyles.dark.textPrimary : 'text-white'} mb-3`}>Generating your Solana wallet...</p>
+              <div className={`inline-block w-8 h-8 border-4 ${darkMode ? 'border-gray-400' : 'border-white'} border-t-transparent rounded-full animate-spin`}></div>
             </div>
           )}
           
           {isSwapping && (
             <div className="mt-8 text-center">
-              <p className="text-lg text-blue-600 mb-3">Swapping tokens using Jupiter...</p>
-              <div className="inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+              <p className={`text-lg ${darkMode ? themeStyles.dark.textPrimary : 'text-white'} mb-3`}>Swapping tokens using Jupiter...</p>
+              <div className={`inline-block w-8 h-8 border-4 ${darkMode ? 'border-gray-400' : 'border-white'} border-t-transparent rounded-full animate-spin`}></div>
             </div>
           )}
           
           {/* Wallet Information */}
           {walletGenerated && !isSwapping && (
-            <div className="mt-8 pt-6 border-t border-gray-200">
+            <div className={`mt-8 pt-6 border-t ${darkMode ? 'border-gray-600' : 'border-white/20'}`}> 
               {/* Wallet Address */}
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold text-blue-600 mb-3">Your Solana Wallet Address</h2>
-                <div className="bg-gray-100 p-3 rounded border border-gray-300 font-mono text-sm break-all">
+              <div className="mb-6">
+                <h2 className={`text-xl font-semibold ${darkMode ? themeStyles.dark.textPrimary : 'text-black'} mb-3`}>Your Solana Wallet</h2>
+                <div className={`${darkMode ? 'bg-gray-700' : 'bg-black/20'} p-4 rounded-lg ${darkMode ? 'border-gray-600' : 'border-white/20'} font-mono text-sm break-all ${darkMode ? themeStyles.dark.textPrimary : 'text-black'}`}>
                   {walletData.address}
                 </div>
-                <div className="flex items-center justify-between mt-3">
+                <div className="flex flex-wrap items-center justify-between mt-3 gap-2">
                   <button 
                     onClick={() => copyToClipboard(walletData.address, 'Wallet address')}
-                    className="flex items-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition-colors"
+                    className={`flex items-center ${darkMode ? themeStyles.dark.button : themeStyles.light.button} px-4 py-2 rounded-lg transition-colors`}
                   >
                     <Copy className="w-4 h-4 mr-2" />
                     Copy Address
                   </button>
-                  
-                  <div className="flex items-center">
+                  <div className="flex items-center gap-2">
                     <button 
                       onClick={() => fetchWalletBalance(walletData.address)} 
-                      className="flex items-center bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded transition-colors mr-3"
+                      className={`flex items-center ${darkMode ? themeStyles.dark.button : themeStyles.light.button} px-4 py-2 rounded-lg transition-colors`}
                       disabled={isFetchingBalance}
                     >
                       <RefreshCw className={`w-4 h-4 mr-2 ${isFetchingBalance ? 'animate-spin' : ''}`} />
-                      Refresh Balance
-                    </button>                  <div className={`px-4 py-2 rounded border ${
-                    walletData.balance > 0 
-                      ? 'bg-green-100 text-green-800 border-green-200' 
-                      : 'bg-yellow-100 text-yellow-800 border-yellow-200'
-                  }`}>
-                    {isFetchingBalance 
-                      ? <span>Loading...</span>
-                      : (
-                        <div className="font-bold">
-                        
-                        </div>
-                      )
-                    }
-                  </div>
+                      Refresh
+                    </button>
+                    <div className={`px-4 py-2 rounded-lg border ${darkMode ? 'border-gray-600' : 'border-white/20'} ${walletData.balance > 0 ? 'bg-emerald-500/20 text-emerald-100' : 'bg-yellow-500/20 text-yellow-100'} ${!darkMode ? 'text-black' : ''}`}>
+                      {isFetchingBalance 
+                        ? 'Loading...'
+                        : `${walletData.balance.toFixed(4)} SOL`
+                      }
+                    </div>
                   </div>
                 </div>
                 
                 {/* Token Balances Section */}
                 <div className="mt-4">
-                  <h3 className="text-sm font-medium text-gray-700 mb-2">Token Balances:</h3>
-                  <div className="bg-gray-50 border border-gray-200 rounded p-3 max-h-48 overflow-y-auto">
+                  <h3 className={`text-sm font-medium ${darkMode ? 'text-gray-300' : 'text-white/80'} mb-2`}>Token Balances:</h3>
+                  <div className={`${darkMode ? 'bg-gray-700' : 'bg-black/10'} border ${darkMode ? 'border-gray-600' : 'border-white/20'} rounded-lg p-3 max-h-48 overflow-y-auto`}>
                     {isFetchingTokenBalances ? (
                       <div className="flex items-center justify-center p-4">
-                        <div className="inline-block w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mr-2"></div>
-                        <span className="text-sm text-gray-500">Fetching token balances...</span>
+                        <div className={`inline-block w-4 h-4 border-2 ${darkMode ? 'border-gray-400' : 'border-white'} border-t-transparent rounded-full animate-spin mr-2`}></div>
+                        <span className={`text-sm ${darkMode ? 'text-gray-300' : 'text-white/80'}`}>Fetching token balances...</span>
                       </div>
                     ) : walletData.tokenBalances && walletData.tokenBalances.length > 0 ? (
                       <div className="grid grid-cols-1 gap-2">
-                        {Array.isArray(walletData.tokenBalances) && walletData.tokenBalances
+                        {walletData.tokenBalances
                           .filter((token: any) => token && token.uiAmount > 0)
                           .map((token: any, index: number) => (
-                            <div key={index} className="flex justify-between items-center py-1 px-2 bg-white rounded border border-gray-100">
-                              <span className="font-mono text-xs">
-                                {token.symbol || (token.mint && `${token.mint.substring(0, 4)}...${token.mint.substring(token.mint.length - 4)}`)}
+                            <div key={index} className={`flex justify-between items-center py-1 px-2 ${darkMode ? 'bg-gray-600/50' : 'bg-white/5'} rounded border ${darkMode ? 'border-gray-500' : 'border-white/10'}`}>
+                              <span className={`font-mono text-xs ${darkMode ? 'text-gray-100' : 'text-white'}`}>
+                                {token.symbol || 'Unknown'}
                               </span>
-                              <span className="font-bold text-green-700">{token.uiAmount.toFixed(6)}</span>
+                              <span className="font-bold text-emerald-300">{token.uiAmount.toFixed(6)}</span>
                             </div>
                           ))}
-                        {(Array.isArray(walletData.tokenBalances) ? walletData.tokenBalances.filter((token: any) => token && token.uiAmount > 0) : []).length === 0 && (
-                          <div className="text-center text-sm text-gray-500 py-2">No token balances found</div>
+                        {walletData.tokenBalances.filter((token: any) => token && token.uiAmount > 0).length === 0 && (
+                          <div className={`text-center text-sm ${darkMode ? 'text-gray-400' : 'text-white/60'} py-2`}>No token balances found</div>
                         )}
                       </div>
                     ) : (
-                      <div className="text-center text-sm text-gray-500 py-2">No token balances available</div>
+                      <div className={`text-center text-sm ${darkMode ? 'text-gray-400' : 'text-white/60'} py-2`}>No token balances available</div>
                     )}
                   </div>
                 </div>
               </div>
               
               {/* Seed Phrase */}
-              <div className="mb-8">
-                <h2 className="text-xl font-semibold text-blue-600 mb-3">Your Secret Recovery Phrase (24 words)</h2>
+              <div className="mb-6">
+                <h2 className={`text-xl font-semibold ${darkMode ? themeStyles.dark.textPrimary : 'text-black'} mb-3`}>Recovery Phrase</h2>
                 
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700">
+                <div className="mb-4 p-3 bg-red-500/10 border border-red-400/30 rounded-lg" style={{ color: darkMode ? undefined : '#b91c1c' }}>
                   <div className="flex items-start">
                     <AlertTriangle className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
-                    <p><strong>IMPORTANT:</strong> Write down these 24 words and keep them safe. Anyone with access to this phrase can control your wallet. Never share these words with anyone!</p>
+                    <p><strong>IMPORTANT:</strong> Never share these words! Store them securely.</p>
                   </div>
                 </div>
                 
-                <div className="bg-gray-100 p-4 rounded border border-gray-300">
-                  <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                <div className={`${darkMode ? 'bg-gray-700' : 'bg-black/20'} p-4 rounded-lg border ${darkMode ? 'border-gray-600' : 'border-white/20'}`}
+                  style={{ color: darkMode ? undefined : 'black' }}>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {walletData.seedPhrase.map((word, index) => (
-                      <div key={index} className="text-sm">
-                        <span className="text-gray-500 font-bold inline-block w-6">{index + 1}.</span>
+                      <div key={index} className={`text-sm ${darkMode ? 'text-gray-100' : 'text-black'}`}> {/* force black in light mode */}
+                        <span className={`${darkMode ? 'text-gray-400' : 'text-black/50'} font-bold inline-block w-6`}>{index + 1}.</span>
                         {word}
                       </div>
                     ))}
@@ -709,26 +817,25 @@ export default function Voice() {
                 
                 <button 
                   onClick={() => copyToClipboard(walletData.seedPhrase.join(' '), 'Recovery phrase')}
-                  className="mt-3 flex items-center bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded transition-colors"
+                  className={`mt-3 flex items-center ${darkMode 
+                    ? 'bg-pink-600 hover:bg-pink-700 text-white' 
+                    : 'bg-amber-400 hover:bg-amber-500 text-black'} px-4 py-2 rounded-lg transition-colors shadow`}
                 >
                   <Copy className="w-4 h-4 mr-2" />
                   Copy Recovery Phrase
                 </button>
               </div>
               
-              {/* Swap Button (if wallet created but not yet swapped) */}
+              {/* Swap Button */}
               {!swapCompleted && (
                 <div className="text-center">
                   <button
                     onClick={swapTokens}
-                    className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-md shadow transition-colors flex items-center mx-auto"
+                    className={`px-6 py-3 ${darkMode ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600' : 'bg-gradient-to-r from-[#2a7b9b] to-[#57c785] hover:from-[#2a7b9b]/90 hover:to-[#57c785]/90'} text-white rounded-lg shadow-lg transition-all hover:shadow-xl flex items-center mx-auto`}
                   >
                     <RefreshCw className="w-5 h-5 mr-2" />
                     Swap Tokens with Jupiter
                   </button>
-                  <p className="mt-2 text-sm text-gray-500">
-                    Or say "Swap Tokens" to swap your SOL to USDC using Jupiter
-                  </p>
                 </div>
               )}
             </div>
@@ -736,23 +843,23 @@ export default function Voice() {
           
           {/* Swap Results */}
           {swapCompleted && (
-            <div className="mt-8 p-6 bg-green-50 border border-green-200 rounded-lg">
-              <h2 className="text-xl font-semibold text-green-600 mb-4">Token Swap Completed!</h2>
+            <div className={`mt-6 p-6 ${darkMode ? 'bg-emerald-500/10 border-emerald-400/30' : 'bg-green-500/10 border-green-400/30'} rounded-lg border`}>
+              <h2 className={`text-xl font-semibold ${darkMode ? 'text-emerald-100' : 'text-green-100'} mb-4`}>Swap Completed!</h2>
               
               <div className="flex items-center justify-center mb-4">
-                <div className="px-4 py-2 bg-blue-100 rounded text-blue-800 font-bold">
-                  {formatTokenAmount(swapData.inputAmount, swapData.inputToken)} {swapData.inputToken}
+                <div className={`px-4 py-2 ${darkMode ? 'bg-blue-500/20 border-blue-400/30' : 'bg-blue-500/20 border-blue-400/30'} rounded-lg font-bold border`}>
+                  <span className={darkMode ? 'text-blue-100' : 'text-blue-100'}>{formatTokenAmount(swapData.inputAmount, swapData.inputToken)} {swapData.inputToken}</span>
                 </div>
-                <ArrowRight className="mx-3 text-gray-400" />
-                <div className="px-4 py-2 bg-green-100 rounded text-green-800 font-bold">
-                  {formatTokenAmount(swapData.outputAmount, swapData.outputToken)} {swapData.outputToken}
+                <ArrowRight className={`mx-3 ${darkMode ? 'text-gray-400' : 'text-white/50'}`} />
+                <div className={`px-4 py-2 ${darkMode ? 'bg-emerald-500/20 border-emerald-400/30' : 'bg-green-500/20 border-green-400/30'} rounded-lg font-bold border`}>
+                  <span className={darkMode ? 'text-emerald-100' : 'text-green-100'}>{formatTokenAmount(swapData.outputAmount, swapData.outputToken)} {swapData.outputToken}</span>
                 </div>
               </div>
               
               <div className="mb-4">
-                <p className="text-sm text-gray-600">Transaction Signature:</p>
-                <div className="mt-1 bg-white p-2 rounded border border-gray-200 font-mono text-xs break-all">
-                  {swapData.txSignature || 'Transaction pending...'}
+                <p className={`text-sm ${darkMode ? 'text-gray-300' : 'text-white/80'}`}>Transaction:</p>
+                <div className={`mt-1 ${darkMode ? 'bg-gray-700' : 'bg-black/20'} p-2 rounded-lg border ${darkMode ? 'border-gray-600' : 'border-white/20'} font-mono text-xs break-all ${darkMode ? 'text-gray-100' : 'text-white'}`}>
+                  {swapData.txSignature || 'Processing...'}
                 </div>
               </div>
               
@@ -762,7 +869,7 @@ export default function Voice() {
                     href={`https://explorer.solana.com/tx/${swapData.txSignature}`}
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline flex items-center justify-center"
+                    className={`${darkMode ? 'text-emerald-300 hover:text-emerald-200' : 'text-white hover:text-white/80'} underline flex items-center justify-center`}
                   >
                     View on Solana Explorer
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -774,66 +881,46 @@ export default function Voice() {
             </div>
           )}
           
-          {/* Demo Button (if wallet not yet generated) */}
+          {/* Demo Buttons */}
           {!walletGenerated && !isLoading && (
-            <div className="mt-8 text-center">
+            <div className="mt-6 text-center space-y-3">
               <button
                 onClick={handleDemoClick}
-                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-md shadow transition-colors mr-3"
+                className={`px-6 py-3 ${darkMode ? themeStyles.dark.button : themeStyles.light.button} rounded-lg shadow transition-colors w-full sm:w-auto`}
               >
                 Demo Voice Assistant
               </button>
               
               <button
                 onClick={() => useExistingWallet("8hE8hihVk1DJyQjk96H41QJCUscqbZU9PmSmpXYCXdBL")}
-                className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-md shadow transition-colors"
+                className={`px-6 py-3 ${darkMode ? themeStyles.dark.button : themeStyles.light.button} rounded-lg shadow transition-colors w-full sm:w-auto`}
               >
-                Load Solscan Wallet
+                Load Example Wallet
               </button>
-              
-              <div className="mt-3 text-sm text-gray-600">
-                Solscan Wallet: 8hE8...XdBL (0.002 SOL)
-              </div>
             </div>
           )}
         </div>
       </div>
       
-      {/* Notification - More prominent */}
+      {/* Notification */}
       {notification.show && (
-        <div className="fixed bottom-4 right-4 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg flex items-center space-x-2 z-50">
+        <div className={`fixed bottom-4 right-4 ${darkMode ? themeStyles.dark.notification : themeStyles.light.notification} text-white px-6 py-3 rounded-lg shadow-xl flex items-center space-x-2 z-50 animate-fade-in-up`}>
           <Volume2 className="w-5 h-5" />
           <span className="font-medium">{notification.message}</span>
         </div>
       )}
-      
-      {/* Debug Panel */}
-      <div className="fixed top-4 left-4 bg-gray-800 text-white p-4 rounded opacity-80 max-w-xs text-xs z-50">
-        <h3 className="font-bold mb-2">Debug Info:</h3>
-        <p>Listening: {isListening ? 'Yes' : 'No'}</p>
-        <p>Last heard: {transcript || 'Nothing yet'}</p>
-        <p>Wallet: {walletGenerated ? 'Generated' : 'Not Generated'}</p>
-        <p>SOL Balance: {walletData.balance.toFixed(4)} SOL</p>
-        <p>Token Balances: {Array.isArray(walletData.tokenBalances) ? walletData.tokenBalances.filter((t: any) => t && t.uiAmount > 0).length : 0} tokens</p>
-        <p>Swap: {swapCompleted ? 'Completed' : 'Not Completed'}</p>
-        <p className="text-green-300 mt-2">Using Jupiter API for balances</p>
-      </div>
     </main>
   );
 }
 
-// Helper function to format token amounts
 function formatTokenAmount(amount: string, token: string): string {
   try {
     const numAmount = parseFloat(amount);
     
-    // Different decimal places based on token
     if (token === 'SOL') {
-      return (numAmount / 1000000000).toFixed(4); // 9 decimals for SOL
+      return (numAmount / 1000000000).toFixed(4);
     } else if (token === 'USDC') {
-      return (numAmount / 1000000).toFixed(2); // 6 decimals for USDC
-    } else if (token === 'USDC') {
-      return (numAmount / 1000000).toFixed(2); // 6 decimals for USDC (standard SPL token)
+      return (numAmount / 1000000).toFixed(2);
     } else {
       return numAmount.toString();
     }
